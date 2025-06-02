@@ -1,13 +1,8 @@
-import os
-import json
 import firebase_admin
 from firebase_admin import credentials, firestore
-from dotenv import load_dotenv
 
-load_dotenv()
-
-cred_dict = json.loads(os.environ["FIREBASE_CREDENTIAL_JSON"])
-cred = credentials.Certificate(cred_dict)
+# Caminho onde o Render salva o Secret File
+cred = credentials.Certificate("/etc/secrets/.firebase_key.json")
 
 if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
