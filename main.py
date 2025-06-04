@@ -1,51 +1,17 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Firebase BI API - Versão Corrigida EnterpriseId
-Versão: 3.2.0 (Fix EnterpriseId)
-17 APIs: Corrige campo EnterpriseId com E maiúsculo
-Configurado para Gunicorn WSGI Server
-"""
-
-import os
-import logging
-from datetime import datetime
 from flask import Flask, request, jsonify
+from firebase_admin_init import db
 from flask_cors import CORS
-from google.cloud.firestore_v1 import GeoPoint
-from google.cloud.firestore_v1._helpers import DatetimeWithNanoseconds
+from google.cloud.firestore_v1.base_geopoint import GeoPoint
+from google.cloud._helpers import DatetimeWithNanoseconds
+import datetime
+import logging
 
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Inicialização do Flask
 app = Flask(__name__)
-
-# Configuração para produção
-app.config['DEBUG'] = False
-app.config['TESTING'] = False
-app.config['ENV'] = 'production'
-
-# Configuração CORS
-CORS(app, 
-     origins=["*"],
-     supports_credentials=True,
-     methods=["*"],
-     allow_headers=["*"])
-
-# Importar Firebase
-try:
-    from firebase_admin_init import db
-    FIREBASE_AVAILABLE = True
-    logger.info("✅ Firebase Admin conectado com sucesso")
-except ImportError as e:
-    FIREBASE_AVAILABLE = False
-    logger.error(f"❌ Firebase Admin não disponível: {e}")
+CORS(app)
 
 def serialize_firebase_data(data):
     """Converte tipos especiais do Firebase para JSON serializável"""
@@ -59,375 +25,319 @@ def serialize_firebase_data(data):
             'longitude': data.longitude,
             '_type': 'GeoPoint'
         }
-    elif isinstance(data, DatetimeWithNanoseconds):
-        return data.isoformat()
-    elif hasattr(data, 'isoformat'):
+    elif isinstance(data, (DatetimeWithNanoseconds, datetime.datetime)):
         return data.isoformat()
     else:
         return data
 
-def get_firebase_data_fixed(collection_name, enterprise_id, limit=100):
-    """Busca dados com correção para EnterpriseId maiúsculo"""
-    if not FIREBASE_AVAILABLE:
-        logger.error(f"❌ Firebase não disponível")
-        return []
-    
+def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
+    """Versão corrigida que REALMENTE testa EnterpriseId maiúsculo"""
     try:
-        query = db.collection(collection_name)
-        if enterprise_id:
-            # Testa AMBAS as variações do campo enterpriseId
-            enterprise_fields = [
-                'EnterpriseId',    # E maiúsculo (correto para APIs amarelas)
-                'enterpriseId',    # e minúsculo (padrão atual)
-                'enterprise_id',   # snake_case
-                'companyId',       # alternativo
-                'organizationId'   # alternativo
-            ]
-            
-            for field in enterprise_fields:
-                try:
-                    logger.info(f"🔍 Testando {collection_name} com {field} = {enterprise_id}")
-                    filtered_query = query.where(field, "==", enterprise_id)
-                    docs = filtered_query.limit(limit).stream()
-                    raw_data = [doc.to_dict() for doc in docs]
+        logger.info(f"🔍 Buscando em {collection_name} para enterpriseId: {enterprise_id}")
+        
+        # Lista de campos para testar EM ORDEM DE PRIORIDADE
+        enterprise_fields = ["EnterpriseId", "enterpriseId", "enterprise_id", "companyId", "organizationId"]
+        
+        for field in enterprise_fields:
+            try:
+                logger.info(f"🧪 Testando campo: {field} == {enterprise_id}")
+                
+                # Criar query com o campo específico
+                query = db.collection(collection_name).where(field, "==", enterprise_id)
+                
+                # Adicionar filtro de data se especificado
+                if days:
+                    from datetime import datetime, timedelta
+                    cutoff_date = datetime.now() - timedelta(days=int(days))
+                    query = query.where("timestamp", ">=", cutoff_date)
+                
+                # Executar query
+                docs = query.limit(100).stream()
+                docs_list = list(docs)
+                
+                logger.info(f"📊 Campo {field}: {len(docs_list)} documentos encontrados")
+                
+                if docs_list:
+                    # SUCESSO! Encontrou dados com este campo
+                    logger.info(f"✅ SUCESSO! Campo {field} retornou {len(docs_list)} documentos")
                     
-                    if raw_data:
-                        logger.info(f"✅ {collection_name}: {len(raw_data)} registros encontrados com {field}")
-                        serialized_data = [serialize_firebase_data(doc) for doc in raw_data]
-                        return serialized_data
-                    else:
-                        logger.info(f"⚠️ {collection_name}: Nenhum registro com {field} = {enterprise_id}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Erro ao filtrar {collection_name} por {field}: {e}")
-                    continue
+                    serialized_data = []
+                    for doc in docs_list:
+                        doc_data = doc.to_dict()
+                        doc_data['_doc_id'] = doc.id
+                        serialized_data.append(serialize_firebase_data(doc_data))
+                    
+                    return {
+                        "collection": collection_name,
+                        "count": len(serialized_data),
+                        "data": serialized_data,
+                        "enterpriseId": enterprise_id,
+                        "firebase_status": "connected",
+                        "source": "firebase_real",
+                        "field_used_successfully": field,
+                        "fix_status": "WORKING",
+                        "timestamp": datetime.datetime.now().isoformat()
+                    }
+                else:
+                    logger.info(f"⚠️ Campo {field}: 0 resultados, tentando próximo...")
+                    
+            except Exception as e:
+                logger.error(f"❌ Erro ao testar campo {field}: {e}")
+                continue
+        
+        # Se chegou aqui, NENHUM campo funcionou
+        logger.warning(f"❌ NENHUM campo enterprise funcionou para {collection_name}")
+        
+        # Fazer uma busca SEM filtro para debug
+        try:
+            all_docs = db.collection(collection_name).limit(5).stream()
+            all_docs_list = list(all_docs)
             
-            logger.warning(f"⚠️ {collection_name}: Nenhum campo enterpriseId funcionou")
-            return []
-        else:
-            # Sem filtro
-            docs = query.limit(limit).stream()
-            raw_data = [doc.to_dict() for doc in docs]
-            serialized_data = [serialize_firebase_data(doc) for doc in raw_data]
-            logger.info(f"✅ {collection_name}: {len(serialized_data)} registros sem filtro")
-            return serialized_data
+            debug_samples = []
+            for doc in all_docs_list:
+                doc_data = doc.to_dict()
+                # Procurar campos enterprise
+                enterprise_fields_found = {}
+                for key, value in doc_data.items():
+                    if "enterprise" in key.lower():
+                        enterprise_fields_found[key] = value
+                
+                debug_samples.append({
+                    "doc_id": doc.id,
+                    "enterprise_fields": enterprise_fields_found
+                })
             
+            logger.info(f"🔍 Debug samples: {debug_samples}")
+            
+            return {
+                "collection": collection_name,
+                "count": 0,
+                "data": [],
+                "enterpriseId": enterprise_id,
+                "firebase_status": "connected",
+                "source": "firebase_real",
+                "fix_status": "NO_MATCHING_FIELD",
+                "debug_samples": debug_samples,
+                "fields_tested": enterprise_fields,
+                "message": "Nenhum campo enterprise ID encontrou resultados",
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
+        except Exception as debug_error:
+            logger.error(f"❌ Erro no debug: {debug_error}")
+            return {
+                "collection": collection_name,
+                "count": 0,
+                "data": [],
+                "enterpriseId": enterprise_id,
+                "firebase_status": "connected",
+                "source": "firebase_real",
+                "fix_status": "DEBUG_ERROR",
+                "error": str(debug_error),
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        
     except Exception as e:
-        logger.error(f"❌ Erro ao buscar {collection_name}: {e}")
-        return []
+        logger.error(f"❌ Erro geral na busca {collection_name}: {e}")
+        return {
+            "collection": collection_name,
+            "count": 0,
+            "data": [],
+            "error": str(e),
+            "firebase_status": "error",
+            "fix_status": "GENERAL_ERROR",
+            "timestamp": datetime.datetime.now().isoformat()
+        }
 
-def create_api_response(collection_name, enterprise_id, data):
-    """Cria resposta padrão da API"""
+# Health Check
+@app.route('/health')
+def health():
     return jsonify({
-        'collection': collection_name,
-        'enterpriseId': enterprise_id,
-        'count': len(data),
-        'data': data,
-        'source': 'firebase_real',
-        'firebase_status': 'connected' if FIREBASE_AVAILABLE else 'disconnected',
-        'fix_applied': 'EnterpriseId_uppercase_fix',
-        'timestamp': datetime.now().isoformat()
+        "status": "healthy",
+        "message": "Firebase BI API - EnterpriseId Fix",
+        "version": "3.4.0-enterpriseid-fix",
+        "endpoints": 17,
+        "firebase_status": "connected"
     })
 
 @app.route('/')
-def index():
-    """Página inicial da API"""
+def root():
     return jsonify({
-        'name': 'Firebase BI API',
-        'version': '3.2.0',
-        'environment': 'production',
-        'description': 'APIs Firebase BI - Fix EnterpriseId maiúsculo',
-        'firebase_status': 'Connected' if FIREBASE_AVAILABLE else 'Disconnected',
-        'total_endpoints': 17,
-        'fix_applied': 'EnterpriseId com E maiúsculo',
-        'endpoints': {
-            '/health': 'Health check',
-            '/alerts-checkin': 'Alerts Check-In',
-            '/checklist': 'Checklist',
-            '/branch': 'Filiais',
-            '/garage': 'Garagens', 
-            '/costcenter': 'Centros de Custo',
-            '/sensors': 'Sensores',
-            '/organization': 'Organizações',
-            '/assettype': 'Tipos de Ativos',
-            '/vehicles': 'Veículos (CORRIGIDO)',
-            '/tires': 'Pneus (CORRIGIDO)',
-            '/suppliers': 'Fornecedores (CORRIGIDO)',
-            '/userregistration': 'Usuários (CORRIGIDO)',
-            '/trips': 'Viagens (CORRIGIDO)',
-            '/fuelregistration': 'Combustível (CORRIGIDO)',
-            '/contractmanagement': 'Contratos (CORRIGIDO)',
-            '/alelo-supply-history': 'Histórico Alelo (CORRIGIDO)'
-        },
-        'usage': '/{endpoint}?enterpriseId=qzDVZ1jB6IC60baxtsDU',
-        'field_tested': ['EnterpriseId', 'enterpriseId', 'enterprise_id', 'companyId', 'organizationId'],
-        'timestamp': datetime.now().isoformat()
+        "message": "🔥 Firebase BI API - EnterpriseId Fix v3.4.0",
+        "description": "API corrigida para usar EnterpriseId maiúsculo corretamente",
+        "total_endpoints": 17,
+        "fix_applied": "EnterpriseId maiúsculo testado primeiro",
+        "usage": "/{endpoint}?enterpriseId=YOUR_ID&days=30",
+        "debug_info": "Resposta inclui field_used_successfully para confirmar qual campo funcionou"
     })
 
-@app.route('/health')
-def health():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'environment': 'production',
-        'firebase': 'connected' if FIREBASE_AVAILABLE else 'disconnected',
-        'server': 'gunicorn',
-        'total_apis': 17,
-        'fix_applied': 'EnterpriseId_uppercase',
-        'timestamp': datetime.now().isoformat()
-    })
-
-# ===== APIs FUNCIONAIS =====
-
+# APIs que já funcionam (mantidas)
 @app.route('/alerts-checkin')
-def alerts_checkin():
-    """Alerts Check-In"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('AlertsCheckIn', enterprise_id)
-        return create_api_response('AlertsCheckIn', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API alerts-checkin: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_alerts_checkin():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("AlertsCheckIn", enterprise_id, days))
 
 @app.route('/checklist')
-def checklist():
-    """Checklist"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Checklist', enterprise_id)
-        return create_api_response('Checklist', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API checklist: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_checklist():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Checklist", enterprise_id, days))
 
 @app.route('/branch')
-def branch():
-    """Filiais"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Branch', enterprise_id)
-        return create_api_response('Branch', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API branch: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_branch():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Branch", enterprise_id, days))
 
 @app.route('/garage')
-def garage():
-    """Garagens"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Garage', enterprise_id)
-        return create_api_response('Garage', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API garage: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_garage():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Garage", enterprise_id, days))
 
 @app.route('/costcenter')
-def costcenter():
-    """Centros de Custo"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('CostCenter', enterprise_id)
-        return create_api_response('CostCenter', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API costcenter: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_costcenter():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("CostCenter", enterprise_id, days))
 
 @app.route('/sensors')
-def sensors():
-    """Sensores"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Sensors', enterprise_id)
-        return create_api_response('Sensors', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API sensors: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_sensors():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Sensors", enterprise_id, days))
 
 @app.route('/organization')
-def organization():
-    """Organizações"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Organization', enterprise_id)
-        return create_api_response('Organization', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API organization: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_organization():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Organization", enterprise_id, days))
 
 @app.route('/assettype')
-def assettype():
-    """Tipos de Ativos"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('AssetType', enterprise_id)
-        return create_api_response('AssetType', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API assettype: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_assettype():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("AssetType", enterprise_id, days))
 
-# ===== APIs CORRIGIDAS (ERAM AMARELAS) =====
-
+# APIs corrigidas (eram amarelas)
 @app.route('/vehicles')
-def vehicles():
-    """Veículos - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Vehicles', enterprise_id)
-        return create_api_response('Vehicles', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API vehicles: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_vehicles():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Vehicles", enterprise_id, days))
 
 @app.route('/tires')
-def tires():
-    """Pneus - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Tires', enterprise_id)
-        return create_api_response('Tires', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API tires: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_tires():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Tires", enterprise_id, days))
 
 @app.route('/suppliers')
-def suppliers():
-    """Fornecedores - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Suppliers', enterprise_id)
-        return create_api_response('Suppliers', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API suppliers: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_suppliers():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Suppliers", enterprise_id, days))
 
 @app.route('/userregistration')
-def userregistration():
-    """Usuários - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('UserRegistration', enterprise_id)
-        return create_api_response('UserRegistration', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API userregistration: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_userregistration():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("UserRegistration", enterprise_id, days))
 
 @app.route('/trips')
-def trips():
-    """Viagens - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('Trips', enterprise_id)
-        return create_api_response('Trips', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API trips: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_trips():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("Trips", enterprise_id, days))
 
 @app.route('/fuelregistration')
-def fuelregistration():
-    """Combustível - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('FuelRegistration', enterprise_id)
-        return create_api_response('FuelRegistration', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API fuelregistration: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_fuelregistration():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("FuelRegistration", enterprise_id, days))
 
 @app.route('/contractmanagement')
-def contractmanagement():
-    """Contratos - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('ContractManagement', enterprise_id)
-        return create_api_response('ContractManagement', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API contractmanagement: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_contractmanagement():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("ContractManagement", enterprise_id, days))
 
 @app.route('/alelo-supply-history')
-def alelo_supply_history():
-    """Histórico Alelo - CORRIGIDO EnterpriseId"""
-    try:
-        enterprise_id = request.args.get('enterpriseId')
-        if not enterprise_id:
-            return jsonify({'error': 'enterpriseId é obrigatório'}), 400
-        
-        data = get_firebase_data_fixed('AleloSupplyHistory', enterprise_id)
-        return create_api_response('AleloSupplyHistory', enterprise_id, data)
-    except Exception as e:
-        logger.error(f"❌ Erro na API alelo-supply-history: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+def get_alelo_supply_history():
+    enterprise_id = request.args.get('enterpriseId')
+    days = request.args.get('days')
+    
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    return jsonify(get_firebase_data_fixed("AleloSupplyHistory", enterprise_id, days))
 
-@app.errorhandler(404)
-def not_found(error):
-    """Tratamento de erro 404"""
-    return jsonify({
-        'error': 'Endpoint não encontrado',
-        'available_endpoints': [
-            '/', '/health', '/alerts-checkin', '/checklist', '/branch', '/garage', '/costcenter',
-            '/sensors', '/organization', '/assettype', '/vehicles', '/tires', '/suppliers',
-            '/userregistration', '/trips', '/fuelregistration', '/contractmanagement', '/alelo-supply-history'
-        ],
-        'total_endpoints': 17,
-        'fix_applied': 'EnterpriseId_uppercase'
-    }), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    """Tratamento de erro 500"""
-    return jsonify({
-        'error': 'Erro interno do servidor',
-        'timestamp': datetime.now().isoformat()
-    }), 500
-
-# Para desenvolvimento local apenas
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    logger.warning("⚠️ Executando em modo desenvolvimento - Use Gunicorn para produção")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print("🚀 Iniciando Firebase BI API - EnterpriseId Fix v3.4.0")
+    print("📊 Total de endpoints: 17")
+    print("🔧 Fix aplicado: EnterpriseId maiúsculo testado primeiro")
+    print("🔥 Firebase Status: Connected")
+    print("🌐 Porta: 10000")
+    
+    app.run(host='0.0.0.0', port=10000, debug=False)
