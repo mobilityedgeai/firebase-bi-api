@@ -1,8 +1,6 @@
 from flask import Flask, request, jsonify
 from firebase_admin_init import db
 from flask_cors import CORS
-from google.cloud.firestore_v1.base_geopoint import GeoPoint
-from google.cloud._helpers import DatetimeWithNanoseconds
 import datetime
 import logging
 
@@ -19,13 +17,15 @@ def serialize_firebase_data(data):
         return {key: serialize_firebase_data(value) for key, value in data.items()}
     elif isinstance(data, list):
         return [serialize_firebase_data(item) for item in data]
-    elif isinstance(data, GeoPoint):
+    elif hasattr(data, 'latitude') and hasattr(data, 'longitude'):
+        # GeoPoint detection sem import específico
         return {
             'latitude': data.latitude,
             'longitude': data.longitude,
             '_type': 'GeoPoint'
         }
-    elif isinstance(data, (DatetimeWithNanoseconds, datetime.datetime)):
+    elif hasattr(data, 'isoformat'):
+        # Datetime objects
         return data.isoformat()
     else:
         return data
@@ -154,8 +154,8 @@ def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
 def health():
     return jsonify({
         "status": "healthy",
-        "message": "Firebase BI API - EnterpriseId Fix",
-        "version": "3.4.0-enterpriseid-fix",
+        "message": "Firebase BI API - Import Fix",
+        "version": "3.5.0-import-fix",
         "endpoints": 17,
         "firebase_status": "connected"
     })
@@ -163,10 +163,10 @@ def health():
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - EnterpriseId Fix v3.4.0",
-        "description": "API corrigida para usar EnterpriseId maiúsculo corretamente",
+        "message": "🔥 Firebase BI API - Import Fix v3.5.0",
+        "description": "API corrigida para resolver erro de importação do GeoPoint",
         "total_endpoints": 17,
-        "fix_applied": "EnterpriseId maiúsculo testado primeiro",
+        "fix_applied": "GeoPoint import corrigido + EnterpriseId maiúsculo",
         "usage": "/{endpoint}?enterpriseId=YOUR_ID&days=30",
         "debug_info": "Resposta inclui field_used_successfully para confirmar qual campo funcionou"
     })
@@ -334,9 +334,9 @@ def get_alelo_supply_history():
     return jsonify(get_firebase_data_fixed("AleloSupplyHistory", enterprise_id, days))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - EnterpriseId Fix v3.4.0")
+    print("🚀 Iniciando Firebase BI API - Import Fix v3.5.0")
     print("📊 Total de endpoints: 17")
-    print("🔧 Fix aplicado: EnterpriseId maiúsculo testado primeiro")
+    print("🔧 Fix aplicado: GeoPoint import corrigido + EnterpriseId maiúsculo")
     print("🔥 Firebase Status: Connected")
     print("🌐 Porta: 10000")
     
