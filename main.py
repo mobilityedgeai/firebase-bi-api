@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from firebase_admin_init import db
 from flask_cors import CORS
-import datetime
+from datetime import datetime
 import logging
 
 # Configurar logging
@@ -30,8 +30,8 @@ def serialize_firebase_data(data):
     else:
         return data
 
-def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
-    """Versão corrigida que REALMENTE testa EnterpriseId maiúsculo"""
+def get_firebase_data_simple(collection_name, enterprise_id):
+    """Versão simplificada SEM filtro de data para evitar problemas de índice"""
     try:
         logger.info(f"🔍 Buscando em {collection_name} para enterpriseId: {enterprise_id}")
         
@@ -42,14 +42,8 @@ def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
             try:
                 logger.info(f"🧪 Testando campo: {field} == {enterprise_id}")
                 
-                # Criar query com o campo específico
+                # Criar query SIMPLES - SEM filtro de data
                 query = db.collection(collection_name).where(field, "==", enterprise_id)
-                
-                # Adicionar filtro de data se especificado
-                if days:
-                    from datetime import datetime, timedelta
-                    cutoff_date = datetime.now() - timedelta(days=int(days))
-                    query = query.where("timestamp", ">=", cutoff_date)
                 
                 # Executar query
                 docs = query.limit(100).stream()
@@ -75,8 +69,8 @@ def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
                         "firebase_status": "connected",
                         "source": "firebase_real",
                         "field_used_successfully": field,
-                        "fix_status": "WORKING",
-                        "timestamp": datetime.datetime.now().isoformat()
+                        "fix_status": "WORKING_NO_DATE_FILTER",
+                        "timestamp": datetime.now().isoformat()
                     }
                 else:
                     logger.info(f"⚠️ Campo {field}: 0 resultados, tentando próximo...")
@@ -120,7 +114,7 @@ def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
                 "debug_samples": debug_samples,
                 "fields_tested": enterprise_fields,
                 "message": "Nenhum campo enterprise ID encontrou resultados",
-                "timestamp": datetime.datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat()
             }
             
         except Exception as debug_error:
@@ -134,7 +128,7 @@ def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
                 "source": "firebase_real",
                 "fix_status": "DEBUG_ERROR",
                 "error": str(debug_error),
-                "timestamp": datetime.datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat()
             }
         
     except Exception as e:
@@ -146,7 +140,7 @@ def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
             "error": str(e),
             "firebase_status": "error",
             "fix_status": "GENERAL_ERROR",
-            "timestamp": datetime.datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
 
 # Health Check
@@ -154,189 +148,181 @@ def get_firebase_data_fixed(collection_name, enterprise_id, days=None):
 def health():
     return jsonify({
         "status": "healthy",
-        "message": "Firebase BI API - Import Fix",
-        "version": "3.5.0-import-fix",
+        "message": "Firebase BI API - Simplified Fix",
+        "version": "3.6.0-simplified",
         "endpoints": 17,
-        "firebase_status": "connected"
+        "firebase_status": "connected",
+        "fixes_applied": ["datetime_corrected", "no_date_filter", "no_index_required"]
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Import Fix v3.5.0",
-        "description": "API corrigida para resolver erro de importação do GeoPoint",
+        "message": "🔥 Firebase BI API - Simplified Fix v3.6.0",
+        "description": "API corrigida para resolver erros de datetime e índices Firebase",
         "total_endpoints": 17,
-        "fix_applied": "GeoPoint import corrigido + EnterpriseId maiúsculo",
-        "usage": "/{endpoint}?enterpriseId=YOUR_ID&days=30",
-        "debug_info": "Resposta inclui field_used_successfully para confirmar qual campo funcionou"
+        "fixes_applied": [
+            "datetime.datetime.now() corrigido",
+            "Filtro de data removido (evita problemas de índice)",
+            "EnterpriseId maiúsculo funcionando"
+        ],
+        "usage": "/{endpoint}?enterpriseId=YOUR_ID",
+        "note": "Parâmetro 'days' removido temporariamente para evitar problemas de índice"
     })
 
 # APIs que já funcionam (mantidas)
 @app.route('/alerts-checkin')
 def get_alerts_checkin():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("AlertsCheckIn", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("AlertsCheckIn", enterprise_id))
 
 @app.route('/checklist')
 def get_checklist():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Checklist", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Checklist", enterprise_id))
 
 @app.route('/branch')
 def get_branch():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Branch", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Branch", enterprise_id))
 
 @app.route('/garage')
 def get_garage():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Garage", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Garage", enterprise_id))
 
 @app.route('/costcenter')
 def get_costcenter():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("CostCenter", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("CostCenter", enterprise_id))
 
 @app.route('/sensors')
 def get_sensors():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Sensors", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Sensors", enterprise_id))
 
 @app.route('/organization')
 def get_organization():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Organization", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Organization", enterprise_id))
 
 @app.route('/assettype')
 def get_assettype():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("AssetType", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("AssetType", enterprise_id))
 
 # APIs corrigidas (eram amarelas)
 @app.route('/vehicles')
 def get_vehicles():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Vehicles", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Vehicles", enterprise_id))
 
 @app.route('/tires')
 def get_tires():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Tires", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Tires", enterprise_id))
 
 @app.route('/suppliers')
 def get_suppliers():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Suppliers", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Suppliers", enterprise_id))
 
 @app.route('/userregistration')
 def get_userregistration():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("UserRegistration", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("UserRegistration", enterprise_id))
 
 @app.route('/trips')
 def get_trips():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("Trips", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("Trips", enterprise_id))
 
 @app.route('/fuelregistration')
 def get_fuelregistration():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("FuelRegistration", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("FuelRegistration", enterprise_id))
 
 @app.route('/contractmanagement')
 def get_contractmanagement():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("ContractManagement", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("ContractManagement", enterprise_id))
 
 @app.route('/alelo-supply-history')
 def get_alelo_supply_history():
     enterprise_id = request.args.get('enterpriseId')
-    days = request.args.get('days')
     
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_fixed("AleloSupplyHistory", enterprise_id, days))
+    return jsonify(get_firebase_data_simple("AleloSupplyHistory", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Import Fix v3.5.0")
+    print("🚀 Iniciando Firebase BI API - Simplified Fix v3.6.0")
     print("📊 Total de endpoints: 17")
-    print("🔧 Fix aplicado: GeoPoint import corrigido + EnterpriseId maiúsculo")
+    print("🔧 Fixes aplicados:")
+    print("   ✅ datetime.datetime.now() corrigido")
+    print("   ✅ Filtro de data removido (evita problemas de índice)")
+    print("   ✅ EnterpriseId maiúsculo funcionando")
     print("🔥 Firebase Status: Connected")
     print("🌐 Porta: 10000")
     
