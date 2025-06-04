@@ -30,30 +30,136 @@ def serialize_firebase_data(data):
     else:
         return data
 
-def get_firebase_data_simple(collection_name, enterprise_id):
-    """Versão simplificada SEM filtro de data para evitar problemas de índice"""
+def debug_collection_access(collection_name):
+    """Debug ultra-detalhado para verificar acesso à coleção"""
     try:
-        logger.info(f"🔍 Buscando em {collection_name} para enterpriseId: {enterprise_id}")
+        logger.info(f"🔍 DEBUG: Testando acesso à coleção {collection_name}")
         
-        # Lista de campos para testar EM ORDEM DE PRIORIDADE
+        # Teste 1: Verificar se a coleção existe
+        try:
+            collection_ref = db.collection(collection_name)
+            logger.info(f"✅ Coleção {collection_name} referenciada com sucesso")
+        except Exception as e:
+            logger.error(f"❌ Erro ao referenciar coleção {collection_name}: {e}")
+            return {"error": f"Não foi possível referenciar a coleção {collection_name}"}
+        
+        # Teste 2: Buscar documentos sem filtro
+        try:
+            docs = collection_ref.limit(3).stream()
+            docs_list = list(docs)
+            logger.info(f"📊 Encontrados {len(docs_list)} documentos na coleção {collection_name}")
+            
+            if not docs_list:
+                logger.warning(f"⚠️ Coleção {collection_name} está vazia ou não acessível")
+                return {
+                    "collection_accessible": True,
+                    "documents_found": 0,
+                    "message": "Coleção acessível mas vazia"
+                }
+            
+            # Teste 3: Analisar estrutura dos documentos
+            debug_docs = []
+            for i, doc in enumerate(docs_list):
+                try:
+                    doc_data = doc.to_dict()
+                    
+                    # Procurar campos enterprise
+                    enterprise_fields = {}
+                    all_fields = list(doc_data.keys())
+                    
+                    for key, value in doc_data.items():
+                        if "enterprise" in key.lower():
+                            enterprise_fields[key] = value
+                    
+                    debug_docs.append({
+                        "doc_index": i,
+                        "doc_id": doc.id,
+                        "total_fields": len(all_fields),
+                        "all_field_names": all_fields,
+                        "enterprise_fields": enterprise_fields
+                    })
+                    
+                    logger.info(f"📄 Doc {i}: ID={doc.id}, Enterprise fields: {enterprise_fields}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Erro ao processar documento {i}: {e}")
+                    debug_docs.append({
+                        "doc_index": i,
+                        "doc_id": doc.id if hasattr(doc, 'id') else 'unknown',
+                        "error": str(e)
+                    })
+            
+            return {
+                "collection_accessible": True,
+                "documents_found": len(docs_list),
+                "debug_documents": debug_docs,
+                "message": "Coleção acessível com dados"
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar documentos em {collection_name}: {e}")
+            return {
+                "collection_accessible": True,
+                "documents_found": 0,
+                "error": str(e),
+                "message": "Coleção acessível mas erro na busca"
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Erro geral no debug da coleção {collection_name}: {e}")
+        return {
+            "collection_accessible": False,
+            "error": str(e),
+            "message": "Erro geral no acesso à coleção"
+        }
+
+def get_firebase_data_ultra_debug(collection_name, enterprise_id):
+    """Versão com debug ultra-detalhado"""
+    try:
+        logger.info(f"🔍 ULTRA DEBUG: Buscando em {collection_name} para enterpriseId: {enterprise_id}")
+        
+        # Primeiro: Debug completo da coleção
+        debug_info = debug_collection_access(collection_name)
+        
+        if not debug_info.get("collection_accessible", False):
+            return {
+                "collection": collection_name,
+                "count": 0,
+                "data": [],
+                "enterpriseId": enterprise_id,
+                "firebase_status": "error",
+                "debug_info": debug_info,
+                "fix_status": "COLLECTION_NOT_ACCESSIBLE",
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        if debug_info.get("documents_found", 0) == 0:
+            return {
+                "collection": collection_name,
+                "count": 0,
+                "data": [],
+                "enterpriseId": enterprise_id,
+                "firebase_status": "connected",
+                "debug_info": debug_info,
+                "fix_status": "COLLECTION_EMPTY",
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        # Segundo: Tentar buscar com diferentes campos enterprise
         enterprise_fields = ["EnterpriseId", "enterpriseId", "enterprise_id", "companyId", "organizationId"]
         
         for field in enterprise_fields:
             try:
-                logger.info(f"🧪 Testando campo: {field} == {enterprise_id}")
+                logger.info(f"🧪 ULTRA DEBUG: Testando campo {field} == {enterprise_id}")
                 
-                # Criar query SIMPLES - SEM filtro de data
                 query = db.collection(collection_name).where(field, "==", enterprise_id)
-                
-                # Executar query
                 docs = query.limit(100).stream()
                 docs_list = list(docs)
                 
-                logger.info(f"📊 Campo {field}: {len(docs_list)} documentos encontrados")
+                logger.info(f"📊 ULTRA DEBUG: Campo {field} retornou {len(docs_list)} documentos")
                 
                 if docs_list:
-                    # SUCESSO! Encontrou dados com este campo
-                    logger.info(f"✅ SUCESSO! Campo {field} retornou {len(docs_list)} documentos")
+                    logger.info(f"✅ SUCESSO! Campo {field} encontrou dados")
                     
                     serialized_data = []
                     for doc in docs_list:
@@ -69,70 +175,32 @@ def get_firebase_data_simple(collection_name, enterprise_id):
                         "firebase_status": "connected",
                         "source": "firebase_real",
                         "field_used_successfully": field,
-                        "fix_status": "WORKING_NO_DATE_FILTER",
+                        "debug_info": debug_info,
+                        "fix_status": "WORKING_ULTRA_DEBUG",
                         "timestamp": datetime.now().isoformat()
                     }
-                else:
-                    logger.info(f"⚠️ Campo {field}: 0 resultados, tentando próximo...")
                     
             except Exception as e:
-                logger.error(f"❌ Erro ao testar campo {field}: {e}")
+                logger.error(f"❌ ULTRA DEBUG: Erro ao testar campo {field}: {e}")
                 continue
         
-        # Se chegou aqui, NENHUM campo funcionou
-        logger.warning(f"❌ NENHUM campo enterprise funcionou para {collection_name}")
-        
-        # Fazer uma busca SEM filtro para debug
-        try:
-            all_docs = db.collection(collection_name).limit(5).stream()
-            all_docs_list = list(all_docs)
-            
-            debug_samples = []
-            for doc in all_docs_list:
-                doc_data = doc.to_dict()
-                # Procurar campos enterprise
-                enterprise_fields_found = {}
-                for key, value in doc_data.items():
-                    if "enterprise" in key.lower():
-                        enterprise_fields_found[key] = value
-                
-                debug_samples.append({
-                    "doc_id": doc.id,
-                    "enterprise_fields": enterprise_fields_found
-                })
-            
-            logger.info(f"🔍 Debug samples: {debug_samples}")
-            
-            return {
-                "collection": collection_name,
-                "count": 0,
-                "data": [],
-                "enterpriseId": enterprise_id,
-                "firebase_status": "connected",
-                "source": "firebase_real",
-                "fix_status": "NO_MATCHING_FIELD",
-                "debug_samples": debug_samples,
-                "fields_tested": enterprise_fields,
-                "message": "Nenhum campo enterprise ID encontrou resultados",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as debug_error:
-            logger.error(f"❌ Erro no debug: {debug_error}")
-            return {
-                "collection": collection_name,
-                "count": 0,
-                "data": [],
-                "enterpriseId": enterprise_id,
-                "firebase_status": "connected",
-                "source": "firebase_real",
-                "fix_status": "DEBUG_ERROR",
-                "error": str(debug_error),
-                "timestamp": datetime.now().isoformat()
-            }
+        # Se chegou aqui, nenhum campo funcionou
+        return {
+            "collection": collection_name,
+            "count": 0,
+            "data": [],
+            "enterpriseId": enterprise_id,
+            "firebase_status": "connected",
+            "source": "firebase_real",
+            "debug_info": debug_info,
+            "fields_tested": enterprise_fields,
+            "fix_status": "NO_MATCHING_ENTERPRISE_FIELD",
+            "message": "Coleção acessível, dados existem, mas nenhum campo enterprise ID funcionou",
+            "timestamp": datetime.now().isoformat()
+        }
         
     except Exception as e:
-        logger.error(f"❌ Erro geral na busca {collection_name}: {e}")
+        logger.error(f"❌ ULTRA DEBUG: Erro geral na busca {collection_name}: {e}")
         return {
             "collection": collection_name,
             "count": 0,
@@ -148,102 +216,28 @@ def get_firebase_data_simple(collection_name, enterprise_id):
 def health():
     return jsonify({
         "status": "healthy",
-        "message": "Firebase BI API - Simplified Fix",
-        "version": "3.6.0-simplified",
+        "message": "Firebase BI API - Ultra Debug",
+        "version": "3.7.0-ultra-debug",
         "endpoints": 17,
-        "firebase_status": "connected",
-        "fixes_applied": ["datetime_corrected", "no_date_filter", "no_index_required"]
+        "firebase_status": "connected"
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Simplified Fix v3.6.0",
-        "description": "API corrigida para resolver erros de datetime e índices Firebase",
+        "message": "🔥 Firebase BI API - Ultra Debug v3.7.0",
+        "description": "API com debug ultra-detalhado para investigar problema da coleção Vehicles",
         "total_endpoints": 17,
-        "fixes_applied": [
-            "datetime.datetime.now() corrigido",
-            "Filtro de data removido (evita problemas de índice)",
-            "EnterpriseId maiúsculo funcionando"
+        "debug_features": [
+            "Verificação de acesso à coleção",
+            "Análise de estrutura dos documentos",
+            "Listagem de todos os campos",
+            "Debug de campos enterprise"
         ],
-        "usage": "/{endpoint}?enterpriseId=YOUR_ID",
-        "note": "Parâmetro 'days' removido temporariamente para evitar problemas de índice"
+        "usage": "/{endpoint}?enterpriseId=YOUR_ID"
     })
 
-# APIs que já funcionam (mantidas)
-@app.route('/alerts-checkin')
-def get_alerts_checkin():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("AlertsCheckIn", enterprise_id))
-
-@app.route('/checklist')
-def get_checklist():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Checklist", enterprise_id))
-
-@app.route('/branch')
-def get_branch():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Branch", enterprise_id))
-
-@app.route('/garage')
-def get_garage():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Garage", enterprise_id))
-
-@app.route('/costcenter')
-def get_costcenter():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("CostCenter", enterprise_id))
-
-@app.route('/sensors')
-def get_sensors():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Sensors", enterprise_id))
-
-@app.route('/organization')
-def get_organization():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Organization", enterprise_id))
-
-@app.route('/assettype')
-def get_assettype():
-    enterprise_id = request.args.get('enterpriseId')
-    
-    if not enterprise_id:
-        return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("AssetType", enterprise_id))
-
-# APIs corrigidas (eram amarelas)
+# API com ultra debug
 @app.route('/vehicles')
 def get_vehicles():
     enterprise_id = request.args.get('enterpriseId')
@@ -251,78 +245,118 @@ def get_vehicles():
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data_simple("Vehicles", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("Vehicles", enterprise_id))
+
+# Outras APIs mantidas com função simples
+@app.route('/alerts-checkin')
+def get_alerts_checkin():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("AlertsCheckIn", enterprise_id))
+
+@app.route('/checklist')
+def get_checklist():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("Checklist", enterprise_id))
+
+@app.route('/branch')
+def get_branch():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("Branch", enterprise_id))
+
+@app.route('/garage')
+def get_garage():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("Garage", enterprise_id))
+
+@app.route('/costcenter')
+def get_costcenter():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("CostCenter", enterprise_id))
+
+@app.route('/sensors')
+def get_sensors():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("Sensors", enterprise_id))
+
+@app.route('/organization')
+def get_organization():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("Organization", enterprise_id))
+
+@app.route('/assettype')
+def get_assettype():
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    return jsonify(get_firebase_data_ultra_debug("AssetType", enterprise_id))
 
 @app.route('/tires')
 def get_tires():
     enterprise_id = request.args.get('enterpriseId')
-    
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Tires", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("Tires", enterprise_id))
 
 @app.route('/suppliers')
 def get_suppliers():
     enterprise_id = request.args.get('enterpriseId')
-    
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Suppliers", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("Suppliers", enterprise_id))
 
 @app.route('/userregistration')
 def get_userregistration():
     enterprise_id = request.args.get('enterpriseId')
-    
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("UserRegistration", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("UserRegistration", enterprise_id))
 
 @app.route('/trips')
 def get_trips():
     enterprise_id = request.args.get('enterpriseId')
-    
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("Trips", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("Trips", enterprise_id))
 
 @app.route('/fuelregistration')
 def get_fuelregistration():
     enterprise_id = request.args.get('enterpriseId')
-    
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("FuelRegistration", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("FuelRegistration", enterprise_id))
 
 @app.route('/contractmanagement')
 def get_contractmanagement():
     enterprise_id = request.args.get('enterpriseId')
-    
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("ContractManagement", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("ContractManagement", enterprise_id))
 
 @app.route('/alelo-supply-history')
 def get_alelo_supply_history():
     enterprise_id = request.args.get('enterpriseId')
-    
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
-    
-    return jsonify(get_firebase_data_simple("AleloSupplyHistory", enterprise_id))
+    return jsonify(get_firebase_data_ultra_debug("AleloSupplyHistory", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Simplified Fix v3.6.0")
+    print("🚀 Iniciando Firebase BI API - Ultra Debug v3.7.0")
     print("📊 Total de endpoints: 17")
-    print("🔧 Fixes aplicados:")
-    print("   ✅ datetime.datetime.now() corrigido")
-    print("   ✅ Filtro de data removido (evita problemas de índice)")
-    print("   ✅ EnterpriseId maiúsculo funcionando")
+    print("🔍 Debug ultra-detalhado ativado")
     print("🔥 Firebase Status: Connected")
     print("🌐 Porta: 10000")
     
