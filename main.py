@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Firebase BI API - Versão Produção com Dados Reais
-Versão: 2.0.0 (Produção)
+Firebase BI API - Versão Produção com Dados Reais (GeoPoint Fix)
+Versão: 2.0.1 (Produção)
 18 APIs: Todas buscando dados reais do Firebase
 Configurado para Gunicorn WSGI Server
+Fix: Serialização de GeoPoint e outros tipos Firebase
 """
 
 import os
@@ -13,6 +14,8 @@ import logging
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from google.cloud.firestore_v1 import GeoPoint
+from google.cloud.firestore_v1._helpers import DatetimeWithNanoseconds
 
 # Configuração de logging para produção
 logging.basicConfig(
@@ -46,8 +49,27 @@ except ImportError as e:
     logger.error(f"❌ Firebase Admin não disponível: {e}")
     logger.error("❌ ERRO CRÍTICO: Firebase é obrigatório para dados reais!")
 
+def serialize_firebase_data(data):
+    """Converte tipos especiais do Firebase para JSON serializável"""
+    if isinstance(data, dict):
+        return {key: serialize_firebase_data(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [serialize_firebase_data(item) for item in data]
+    elif isinstance(data, GeoPoint):
+        return {
+            'latitude': data.latitude,
+            'longitude': data.longitude,
+            '_type': 'GeoPoint'
+        }
+    elif isinstance(data, DatetimeWithNanoseconds):
+        return data.isoformat()
+    elif hasattr(data, 'isoformat'):  # datetime objects
+        return data.isoformat()
+    else:
+        return data
+
 def get_firebase_data(collection_name, enterprise_id, limit=100):
-    """Busca dados reais do Firebase"""
+    """Busca dados reais do Firebase com serialização corrigida"""
     if not FIREBASE_AVAILABLE:
         logger.error(f"❌ Firebase não disponível para coleção {collection_name}")
         return []
@@ -57,9 +79,13 @@ def get_firebase_data(collection_name, enterprise_id, limit=100):
         if enterprise_id:
             query = query.where("enterpriseId", "==", enterprise_id)
         docs = query.limit(limit).stream()
-        data = [doc.to_dict() for doc in docs]
-        logger.info(f"✅ {collection_name}: {len(data)} registros encontrados para enterpriseId {enterprise_id}")
-        return data
+        
+        # Converter documentos e serializar tipos especiais
+        raw_data = [doc.to_dict() for doc in docs]
+        serialized_data = [serialize_firebase_data(doc) for doc in raw_data]
+        
+        logger.info(f"✅ {collection_name}: {len(serialized_data)} registros encontrados e serializados para enterpriseId {enterprise_id}")
+        return serialized_data
     except Exception as e:
         logger.error(f"❌ Erro ao buscar {collection_name}: {e}")
         return []
@@ -73,6 +99,7 @@ def create_api_response(collection_name, enterprise_id, data):
         'data': data,
         'source': 'firebase_real',
         'firebase_status': 'connected' if FIREBASE_AVAILABLE else 'disconnected',
+        'serialization': 'geopoint_fixed',
         'timestamp': datetime.now().isoformat()
     })
 
@@ -81,11 +108,12 @@ def index():
     """Página inicial da API"""
     return jsonify({
         'name': 'Firebase BI API',
-        'version': '2.0.0',
+        'version': '2.0.1',
         'environment': 'production',
         'description': 'APIs Firebase para Business Intelligence - Dados Reais',
         'firebase_status': 'Connected' if FIREBASE_AVAILABLE else 'Disconnected',
         'data_source': 'Firebase Real Data Only',
+        'serialization_fix': 'GeoPoint and DateTime support',
         'total_endpoints': 18,
         'endpoints': {
             '/health': 'Health check',
@@ -109,7 +137,7 @@ def index():
             '/alelo-supply-history': 'Histórico Alelo por enterpriseId'
         },
         'usage': '/{endpoint}?enterpriseId=sA9EmrE3ymtnBqJKcYn7&days=30',
-        'note': 'Todas as APIs retornam dados reais do Firebase',
+        'note': 'Todas as APIs retornam dados reais do Firebase com GeoPoint serializado',
         'timestamp': datetime.now().isoformat()
     })
 
@@ -122,6 +150,7 @@ def health():
         'firebase': 'connected' if FIREBASE_AVAILABLE else 'disconnected',
         'server': 'gunicorn',
         'data_source': 'firebase_real',
+        'serialization': 'geopoint_fixed',
         'total_apis': 18,
         'timestamp': datetime.now().isoformat()
     })
@@ -393,7 +422,8 @@ def not_found(error):
         ],
         'usage': '/{endpoint}?enterpriseId=sA9EmrE3ymtnBqJKcYn7',
         'total_endpoints': 18,
-        'data_source': 'firebase_real'
+        'data_source': 'firebase_real',
+        'serialization': 'geopoint_fixed'
     }), 404
 
 @app.errorhandler(500)
