@@ -27,6 +27,23 @@ def serialize_firebase_data(data):
     elif hasattr(data, 'isoformat'):
         # Datetime objects
         return data.isoformat()
+    elif hasattr(data, 'path'):
+        # DocumentReference objects
+        return {
+            'path': data.path,
+            'id': data.id,
+            '_type': 'DocumentReference'
+        }
+    elif str(type(data)).find('DocumentReference') != -1:
+        # Fallback para DocumentReference
+        try:
+            return {
+                'path': str(data),
+                'id': data.id if hasattr(data, 'id') else None,
+                '_type': 'DocumentReference'
+            }
+        except:
+            return str(data)
     else:
         return data
 
@@ -105,22 +122,23 @@ def health():
     return jsonify({
         "status": "healthy",
         "message": "Firebase BI API - Nomes Corretos",
-        "version": "4.1.0-trips-fixed",
+        "version": "4.1.1-trips-fixed",
         "endpoints": 17,
         "firebase_status": "connected",
-        "trips_status": "FIXED"
+        "trips_status": "FIXED_DOCUMENTREFERENCE"
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Versão Final v4.1.0",
+        "message": "🔥 Firebase BI API - Versão Final v4.1.1",
         "description": "API com nomes de coleções corretos e endpoint Trips funcionando",
         "total_endpoints": 17,
         "corrections": [
             "vehicles (minúscula) - corrigido",
             "alelo-supply-history (hífen) - corrigido",
-            "trips (Trips com T maiúsculo) - corrigido"
+            "trips (Trips com T maiúsculo) - corrigido",
+            "DocumentReference serialization - corrigido"
         ],
         "usage": "/{endpoint}?enterpriseId=YOUR_ID"
     })
@@ -283,12 +301,13 @@ def get_assettype():
     return jsonify(get_firebase_data("AssetType", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Versão Final v4.1.0")
+    print("🚀 Iniciando Firebase BI API - Versão Final v4.1.1")
     print("📊 Total de endpoints: 17")
     print("✅ Nomes de coleções corretos:")
     print("   - vehicles (minúscula)")
     print("   - alelo-supply-history (hífen)")
     print("   - Trips (T maiúsculo) - CORRIGIDO")
+    print("   - DocumentReference serialization - CORRIGIDO")
     print("🔥 Firebase Status: Connected")
     print("🌐 Porta: 10000")
     
