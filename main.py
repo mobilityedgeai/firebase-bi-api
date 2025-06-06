@@ -105,20 +105,22 @@ def health():
     return jsonify({
         "status": "healthy",
         "message": "Firebase BI API - Nomes Corretos",
-        "version": "4.0.0-final",
+        "version": "4.1.0-trips-fixed",
         "endpoints": 17,
-        "firebase_status": "connected"
+        "firebase_status": "connected",
+        "trips_status": "FIXED"
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Versão Final v4.0.0",
-        "description": "API com nomes de coleções corretos",
+        "message": "🔥 Firebase BI API - Versão Final v4.1.0",
+        "description": "API com nomes de coleções corretos e endpoint Trips funcionando",
         "total_endpoints": 17,
         "corrections": [
             "vehicles (minúscula) - corrigido",
-            "alelo-supply-history (hífen) - corrigido"
+            "alelo-supply-history (hífen) - corrigido",
+            "trips (Trips com T maiúsculo) - corrigido"
         ],
         "usage": "/{endpoint}?enterpriseId=YOUR_ID"
     })
@@ -158,11 +160,38 @@ def get_suppliers():
 
 @app.route('/trips')
 def get_trips():
+    """
+    API para obter dados da coleção Trips (corrigida)
+    Busca na coleção 'Trips' com T maiúsculo conforme estrutura do Firebase
+    """
     enterprise_id = request.args.get('enterpriseId')
     if not enterprise_id:
         return jsonify({"error": "enterpriseId é obrigatório"}), 400
     
-    return jsonify(get_firebase_data("Trips", enterprise_id))
+    logger.info(f"🚛 Endpoint /trips chamado para enterpriseId: {enterprise_id}")
+    
+    try:
+        # Buscar na coleção 'Trips' com T maiúsculo
+        result = get_firebase_data("Trips", enterprise_id)
+        
+        # Log do resultado
+        if result.get("count", 0) > 0:
+            logger.info(f"✅ Trips: {result['count']} viagens encontradas")
+        else:
+            logger.warning(f"⚠️ Trips: Nenhuma viagem encontrada para {enterprise_id}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro no endpoint /trips: {str(e)}")
+        return jsonify({
+            "error": "Erro interno do servidor",
+            "message": str(e),
+            "collection": "Trips",
+            "enterpriseId": enterprise_id,
+            "fix_status": "ERROR_IN_TRIPS_ENDPOINT",
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 @app.route('/fuelregistration')
 def get_fuelregistration():
@@ -254,11 +283,12 @@ def get_assettype():
     return jsonify(get_firebase_data("AssetType", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Versão Final v4.0.0")
+    print("🚀 Iniciando Firebase BI API - Versão Final v4.1.0")
     print("📊 Total de endpoints: 17")
     print("✅ Nomes de coleções corretos:")
     print("   - vehicles (minúscula)")
     print("   - alelo-supply-history (hífen)")
+    print("   - Trips (T maiúsculo) - CORRIGIDO")
     print("🔥 Firebase Status: Connected")
     print("🌐 Porta: 10000")
     
