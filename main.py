@@ -121,30 +121,30 @@ def get_firebase_data(collection_name, enterprise_id):
 def health():
     return jsonify({
         "status": "healthy",
-        "message": "Firebase BI API - Com Endpoint Users",
-        "version": "4.2.0-users-added",
+        "message": "Firebase BI API - Com Endpoint Users Corrigido",
+        "version": "4.2.3-users-collection-fixed",
         "endpoints": 18,
         "firebase_status": "connected",
         "trips_status": "FIXED_DOCUMENTREFERENCE",
-        "users_status": "ADDED_AND_WORKING"
+        "users_status": "FIXED_USERS_COLLECTION"
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Versão Final v4.2.0",
-        "description": "API com nomes de coleções corretos, endpoint Trips funcionando e endpoint Users ADICIONADO",
+        "message": "🔥 Firebase BI API - Versão Final v4.2.3",
+        "description": "API com nomes de coleções corretos, endpoint Trips funcionando e endpoint Users CORRIGIDO",
         "total_endpoints": 18,
         "corrections": [
             "vehicles (minúscula) - corrigido",
             "alelo-supply-history (hífen) - corrigido", 
             "trips (Trips com T maiúsculo) - corrigido",
             "DocumentReference serialization - corrigido",
-            "users (coleção users minúscula) - ADICIONADO"
+            "users (coleção users minúscula) - CORRIGIDO PARA BUSCAR NA COLLECTION USERS"
         ],
         "usage": "/{endpoint}?enterpriseId=YOUR_ID",
-        "new_endpoints": [
-            "/users - Acessa coleção 'users' (minúscula) do Firebase"
+        "fixed_endpoints": [
+            "/users - Busca ESPECIFICAMENTE na coleção 'users' (minúscula) do Firebase"
         ]
     })
 
@@ -219,9 +219,8 @@ def get_trips():
 @app.route('/users')
 def get_users():
     """
-    API para obter dados da coleção users (NOVA)
-    Busca na coleção 'users' (minúscula) conforme Firebase Console
-    Fallback para 'Users' (maiúscula) se necessário
+    API para obter dados da coleção users (CORRIGIDA)
+    Busca ESPECIFICAMENTE na coleção 'users' (minúscula) conforme solicitado
     """
     enterprise_id = request.args.get('enterpriseId')
     if not enterprise_id:
@@ -230,42 +229,59 @@ def get_users():
     logger.info(f"👥 Endpoint /users chamado para enterpriseId: {enterprise_id}")
     
     try:
-        # Primeiro: tentar coleção 'users' (minúscula) - conforme Firebase Console
-        logger.info(f"🔍 Tentando coleção 'users' (minúscula)...")
+        # CORREÇÃO: Buscar ESPECIFICAMENTE na coleção 'users' (minúscula)
+        logger.info(f"🔍 Buscando ESPECIFICAMENTE na coleção 'users' (minúscula)...")
         result = get_firebase_data("users", enterprise_id)
         
-        # Se encontrou dados, retornar
+        # Adicionar informações específicas sobre a busca
+        result["collection_used"] = "users (minúscula)"
+        result["source_note"] = "Buscando ESPECIFICAMENTE na collection 'users' conforme solicitado"
+        result["fix_status"] = "SEARCHING_USERS_COLLECTION_ONLY"
+        
+        # Log do resultado
         if result.get("count", 0) > 0:
-            logger.info(f"✅ Users (minúscula): {result['count']} usuários encontrados")
-            result["collection_used"] = "users (minúscula)"
-            result["source_note"] = "Dados encontrados na coleção 'users' conforme Firebase Console"
-            return jsonify(result)
+            logger.info(f"✅ Users: {result['count']} usuários encontrados na collection 'users'")
+        else:
+            logger.warning(f"⚠️ Users: Nenhum usuário encontrado na collection 'users' para {enterprise_id}")
+            
+            # Debug: tentar buscar alguns documentos sem filtro para verificar se a collection existe
+            try:
+                logger.info("🔍 Debug: verificando se a collection 'users' existe...")
+                debug_query = db.collection("users").limit(3).stream()
+                debug_docs = list(debug_query)
+                
+                if debug_docs:
+                    logger.info(f"📊 Debug: Collection 'users' existe e tem {len(debug_docs)} documentos (amostra)")
+                    sample_data = []
+                    for doc in debug_docs:
+                        doc_data = doc.to_dict()
+                        sample_data.append({
+                            'id': doc.id,
+                            'enterpriseId': doc_data.get('enterpriseId', 'N/A'),
+                            'EnterpriseId': doc_data.get('EnterpriseId', 'N/A'),
+                            'display_name': doc_data.get('display_name', 'N/A')
+                        })
+                    
+                    result["debug_info"] = {
+                        "collection_exists": True,
+                        "sample_documents": sample_data,
+                        "message": "Collection 'users' existe mas não tem dados para este enterpriseId"
+                    }
+                else:
+                    logger.warning("⚠️ Debug: Collection 'users' parece estar vazia")
+                    result["debug_info"] = {
+                        "collection_exists": False,
+                        "message": "Collection 'users' não encontrada ou vazia"
+                    }
+                    
+            except Exception as debug_error:
+                logger.error(f"❌ Erro no debug da collection 'users': {debug_error}")
+                result["debug_info"] = {
+                    "error": str(debug_error),
+                    "message": "Erro ao verificar collection 'users'"
+                }
         
-        # Fallback: tentar coleção 'Users' (maiúscula)
-        logger.info(f"🔄 Fallback: tentando coleção 'Users' (maiúscula)...")
-        result_fallback = get_firebase_data("Users", enterprise_id)
-        
-        if result_fallback.get("count", 0) > 0:
-            logger.info(f"✅ Users (maiúscula): {result_fallback['count']} usuários encontrados")
-            result_fallback["collection_used"] = "Users (maiúscula)"
-            result_fallback["source_note"] = "Dados encontrados na coleção 'Users' como fallback"
-            return jsonify(result_fallback)
-        
-        # Se nenhuma das duas funcionou
-        logger.warning(f"⚠️ Users: Nenhum usuário encontrado em 'users' nem 'Users' para {enterprise_id}")
-        
-        return jsonify({
-            "collection": "users",
-            "count": 0,
-            "data": [],
-            "enterpriseId": enterprise_id,
-            "firebase_status": "connected",
-            "source": "firebase_real",
-            "collections_tested": ["users", "Users"],
-            "fix_status": "NO_USERS_FOUND_IN_BOTH_COLLECTIONS",
-            "message": "Nenhum usuário encontrado nas coleções 'users' ou 'Users'",
-            "timestamp": datetime.now().isoformat()
-        })
+        return jsonify(result)
         
     except Exception as e:
         logger.error(f"❌ Erro no endpoint /users: {str(e)}")
@@ -275,6 +291,7 @@ def get_users():
             "collection": "users",
             "enterpriseId": enterprise_id,
             "fix_status": "ERROR_IN_USERS_ENDPOINT",
+            "collection_used": "users (minúscula)",
             "timestamp": datetime.now().isoformat()
         }), 500
 
@@ -368,16 +385,16 @@ def get_assettype():
     return jsonify(get_firebase_data("AssetType", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Versão Final v4.2.0")
+    print("🚀 Iniciando Firebase BI API - Versão Final v4.2.3")
     print("📊 Total de endpoints: 18")
     print("✅ Nomes de coleções corretos:")
     print("   - vehicles (minúscula)")
     print("   - alelo-supply-history (hífen)")
     print("   - Trips (T maiúsculo) - CORRIGIDO")
-    print("   - users (u minúsculo) - ADICIONADO ✨")
+    print("   - users (u minúsculo) - CORRIGIDO PARA BUSCAR ESPECIFICAMENTE NA COLLECTION USERS")
     print("   - DocumentReference serialization - CORRIGIDO")
     print("🔥 Firebase Status: Connected")
-    print("👥 Users Endpoint: FUNCIONANDO")
+    print("👥 Users Endpoint: CORRIGIDO - BUSCA ESPECIFICAMENTE NA COLLECTION 'users'")
     print("🌐 Porta: 10000")
     
     app.run(host='0.0.0.0', port=10000, debug=False)
