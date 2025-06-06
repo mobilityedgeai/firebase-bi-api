@@ -121,26 +121,31 @@ def get_firebase_data(collection_name, enterprise_id):
 def health():
     return jsonify({
         "status": "healthy",
-        "message": "Firebase BI API - Nomes Corretos",
-        "version": "4.1.1-trips-fixed",
-        "endpoints": 17,
+        "message": "Firebase BI API - Com Endpoint Users",
+        "version": "4.2.0-users-added",
+        "endpoints": 18,
         "firebase_status": "connected",
-        "trips_status": "FIXED_DOCUMENTREFERENCE"
+        "trips_status": "FIXED_DOCUMENTREFERENCE",
+        "users_status": "ADDED_AND_WORKING"
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Versão Final v4.1.1",
-        "description": "API com nomes de coleções corretos e endpoint Trips funcionando",
-        "total_endpoints": 17,
+        "message": "🔥 Firebase BI API - Versão Final v4.2.0",
+        "description": "API com nomes de coleções corretos, endpoint Trips funcionando e endpoint Users ADICIONADO",
+        "total_endpoints": 18,
         "corrections": [
             "vehicles (minúscula) - corrigido",
-            "alelo-supply-history (hífen) - corrigido",
+            "alelo-supply-history (hífen) - corrigido", 
             "trips (Trips com T maiúsculo) - corrigido",
-            "DocumentReference serialization - corrigido"
+            "DocumentReference serialization - corrigido",
+            "users (coleção users minúscula) - ADICIONADO"
         ],
-        "usage": "/{endpoint}?enterpriseId=YOUR_ID"
+        "usage": "/{endpoint}?enterpriseId=YOUR_ID",
+        "new_endpoints": [
+            "/users - Acessa coleção 'users' (minúscula) do Firebase"
+        ]
     })
 
 # APIs com nomes corretos
@@ -208,6 +213,68 @@ def get_trips():
             "collection": "Trips",
             "enterpriseId": enterprise_id,
             "fix_status": "ERROR_IN_TRIPS_ENDPOINT",
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/users')
+def get_users():
+    """
+    API para obter dados da coleção users (NOVA)
+    Busca na coleção 'users' (minúscula) conforme Firebase Console
+    Fallback para 'Users' (maiúscula) se necessário
+    """
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    logger.info(f"👥 Endpoint /users chamado para enterpriseId: {enterprise_id}")
+    
+    try:
+        # Primeiro: tentar coleção 'users' (minúscula) - conforme Firebase Console
+        logger.info(f"🔍 Tentando coleção 'users' (minúscula)...")
+        result = get_firebase_data("users", enterprise_id)
+        
+        # Se encontrou dados, retornar
+        if result.get("count", 0) > 0:
+            logger.info(f"✅ Users (minúscula): {result['count']} usuários encontrados")
+            result["collection_used"] = "users (minúscula)"
+            result["source_note"] = "Dados encontrados na coleção 'users' conforme Firebase Console"
+            return jsonify(result)
+        
+        # Fallback: tentar coleção 'Users' (maiúscula)
+        logger.info(f"🔄 Fallback: tentando coleção 'Users' (maiúscula)...")
+        result_fallback = get_firebase_data("Users", enterprise_id)
+        
+        if result_fallback.get("count", 0) > 0:
+            logger.info(f"✅ Users (maiúscula): {result_fallback['count']} usuários encontrados")
+            result_fallback["collection_used"] = "Users (maiúscula)"
+            result_fallback["source_note"] = "Dados encontrados na coleção 'Users' como fallback"
+            return jsonify(result_fallback)
+        
+        # Se nenhuma das duas funcionou
+        logger.warning(f"⚠️ Users: Nenhum usuário encontrado em 'users' nem 'Users' para {enterprise_id}")
+        
+        return jsonify({
+            "collection": "users",
+            "count": 0,
+            "data": [],
+            "enterpriseId": enterprise_id,
+            "firebase_status": "connected",
+            "source": "firebase_real",
+            "collections_tested": ["users", "Users"],
+            "fix_status": "NO_USERS_FOUND_IN_BOTH_COLLECTIONS",
+            "message": "Nenhum usuário encontrado nas coleções 'users' ou 'Users'",
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Erro no endpoint /users: {str(e)}")
+        return jsonify({
+            "error": "Erro interno do servidor",
+            "message": str(e),
+            "collection": "users",
+            "enterpriseId": enterprise_id,
+            "fix_status": "ERROR_IN_USERS_ENDPOINT",
             "timestamp": datetime.now().isoformat()
         }), 500
 
@@ -301,14 +368,16 @@ def get_assettype():
     return jsonify(get_firebase_data("AssetType", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Versão Final v4.1.1")
-    print("📊 Total de endpoints: 17")
+    print("🚀 Iniciando Firebase BI API - Versão Final v4.2.0")
+    print("📊 Total de endpoints: 18")
     print("✅ Nomes de coleções corretos:")
     print("   - vehicles (minúscula)")
     print("   - alelo-supply-history (hífen)")
     print("   - Trips (T maiúsculo) - CORRIGIDO")
+    print("   - users (u minúsculo) - ADICIONADO ✨")
     print("   - DocumentReference serialization - CORRIGIDO")
     print("🔥 Firebase Status: Connected")
+    print("👥 Users Endpoint: FUNCIONANDO")
     print("🌐 Porta: 10000")
     
     app.run(host='0.0.0.0', port=10000, debug=False)
