@@ -121,20 +121,21 @@ def get_firebase_data(collection_name, enterprise_id):
 def health():
     return jsonify({
         "status": "healthy",
-        "message": "Firebase BI API - Com Endpoint Users Corrigido",
-        "version": "4.2.3-users-collection-fixed",
-        "endpoints": 18,
+        "message": "Firebase BI API - Com Novos Endpoints DrivingData e Tracking",
+        "version": "4.3.0-drivingdata-tracking-added",
+        "endpoints": 20,
         "firebase_status": "connected",
         "trips_status": "FIXED_DOCUMENTREFERENCE",
-        "users_status": "FIXED_USERS_COLLECTION"
+        "users_status": "FIXED_USERS_COLLECTION",
+        "new_endpoints": ["drivingdata", "tracking"]
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Versão Final v4.2.3",
-        "description": "API com nomes de coleções corretos, endpoint Trips funcionando e endpoint Users CORRIGIDO",
-        "total_endpoints": 18,
+        "message": "🔥 Firebase BI API - Versão Final v4.3.0",
+        "description": "API com nomes de coleções corretos, endpoint Trips funcionando, endpoint Users CORRIGIDO e NOVOS endpoints DrivingData e Tracking",
+        "total_endpoints": 20,
         "corrections": [
             "vehicles (minúscula) - corrigido",
             "alelo-supply-history (hífen) - corrigido", 
@@ -142,9 +143,16 @@ def root():
             "DocumentReference serialization - corrigido",
             "users (coleção users minúscula) - CORRIGIDO PARA BUSCAR NA COLLECTION USERS"
         ],
+        "new_endpoints": [
+            "/drivingdata - Collection DrivingData para dados de condução",
+            "/tracking - Collection Tracking para dados de rastreamento"
+        ],
         "usage": "/{endpoint}?enterpriseId=YOUR_ID",
-        "fixed_endpoints": [
-            "/users - Busca ESPECIFICAMENTE na coleção 'users' (minúscula) do Firebase"
+        "available_endpoints": [
+            "/vehicles", "/alelo-supply-history", "/tires", "/suppliers", "/trips", "/users",
+            "/fuelregistration", "/contractmanagement", "/userregistration", "/alerts-checkin",
+            "/checklist", "/branch", "/garage", "/costcenter", "/sensors", "/organization",
+            "/assettype", "/drivingdata", "/tracking", "/health"
         ]
     })
 
@@ -295,6 +303,75 @@ def get_users():
             "timestamp": datetime.now().isoformat()
         }), 500
 
+# NOVOS ENDPOINTS ADICIONADOS
+@app.route('/drivingdata')
+def get_drivingdata():
+    """
+    API para obter dados da coleção DrivingData
+    Dados de condução e comportamento dos motoristas
+    """
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    logger.info(f"🚗 Endpoint /drivingdata chamado para enterpriseId: {enterprise_id}")
+    
+    try:
+        result = get_firebase_data("DrivingData", enterprise_id)
+        
+        # Log do resultado
+        if result.get("count", 0) > 0:
+            logger.info(f"✅ DrivingData: {result['count']} registros encontrados")
+        else:
+            logger.warning(f"⚠️ DrivingData: Nenhum registro encontrado para {enterprise_id}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro no endpoint /drivingdata: {str(e)}")
+        return jsonify({
+            "error": "Erro interno do servidor",
+            "message": str(e),
+            "collection": "DrivingData",
+            "enterpriseId": enterprise_id,
+            "fix_status": "ERROR_IN_DRIVINGDATA_ENDPOINT",
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/tracking')
+def get_tracking():
+    """
+    API para obter dados da coleção Tracking
+    Dados de rastreamento e localização dos veículos
+    """
+    enterprise_id = request.args.get('enterpriseId')
+    if not enterprise_id:
+        return jsonify({"error": "enterpriseId é obrigatório"}), 400
+    
+    logger.info(f"📍 Endpoint /tracking chamado para enterpriseId: {enterprise_id}")
+    
+    try:
+        result = get_firebase_data("Tracking", enterprise_id)
+        
+        # Log do resultado
+        if result.get("count", 0) > 0:
+            logger.info(f"✅ Tracking: {result['count']} registros encontrados")
+        else:
+            logger.warning(f"⚠️ Tracking: Nenhum registro encontrado para {enterprise_id}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro no endpoint /tracking: {str(e)}")
+        return jsonify({
+            "error": "Erro interno do servidor",
+            "message": str(e),
+            "collection": "Tracking",
+            "enterpriseId": enterprise_id,
+            "fix_status": "ERROR_IN_TRACKING_ENDPOINT",
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
 @app.route('/fuelregistration')
 def get_fuelregistration():
     enterprise_id = request.args.get('enterpriseId')
@@ -385,14 +462,17 @@ def get_assettype():
     return jsonify(get_firebase_data("AssetType", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Versão Final v4.2.3")
-    print("📊 Total de endpoints: 18")
+    print("🚀 Iniciando Firebase BI API - Versão Final v4.3.0")
+    print("📊 Total de endpoints: 20")
     print("✅ Nomes de coleções corretos:")
     print("   - vehicles (minúscula)")
     print("   - alelo-supply-history (hífen)")
     print("   - Trips (T maiúsculo) - CORRIGIDO")
     print("   - users (u minúsculo) - CORRIGIDO PARA BUSCAR ESPECIFICAMENTE NA COLLECTION USERS")
     print("   - DocumentReference serialization - CORRIGIDO")
+    print("🆕 Novos endpoints adicionados:")
+    print("   - /drivingdata (Collection DrivingData)")
+    print("   - /tracking (Collection Tracking)")
     print("🔥 Firebase Status: Connected")
     print("👥 Users Endpoint: CORRIGIDO - BUSCA ESPECIFICAMENTE NA COLLECTION 'users'")
     print("🌐 Porta: 10000")
