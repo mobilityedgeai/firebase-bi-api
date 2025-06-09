@@ -52,8 +52,8 @@ def get_firebase_data(collection_name, enterprise_id):
     try:
         logger.info(f"🔍 Buscando em {collection_name} para enterpriseId: {enterprise_id}")
         
-        # Testar diferentes campos enterprise
-        enterprise_fields = ["EnterpriseId", "enterpriseId", "enterprise_id", "companyId", "organizationId"]
+        # Testar diferentes campos enterprise - CORRIGIDO: Adicionado 'Empresa' no início
+        enterprise_fields = ["Empresa", "EnterpriseId", "enterpriseId", "enterprise_id", "companyId", "organizationId"]
         
         for field in enterprise_fields:
             try:
@@ -121,27 +121,28 @@ def get_firebase_data(collection_name, enterprise_id):
 def health():
     return jsonify({
         "status": "healthy",
-        "message": "Firebase BI API - Com Novos Endpoints DrivingData e Tracking",
-        "version": "4.3.0-drivingdata-tracking-added",
+        "message": "Firebase BI API - Com Correção Campo Empresa",
+        "version": "4.4.0-empresa-field-fixed",
         "endpoints": 20,
         "firebase_status": "connected",
         "trips_status": "FIXED_DOCUMENTREFERENCE",
-        "users_status": "FIXED_USERS_COLLECTION",
-        "new_endpoints": ["drivingdata", "tracking"]
+        "users_status": "FIXED_EMPRESA_FIELD",
+        "new_endpoints": ["drivingdata", "tracking"],
+        "empresa_field_fix": "Campo 'Empresa' adicionado na busca de usuários"
     })
 
 @app.route('/')
 def root():
     return jsonify({
-        "message": "🔥 Firebase BI API - Versão Final v4.3.0",
-        "description": "API com nomes de coleções corretos, endpoint Trips funcionando, endpoint Users CORRIGIDO e NOVOS endpoints DrivingData e Tracking",
+        "message": "🔥 Firebase BI API - Versão Corrigida v4.4.0",
+        "description": "API com campo 'Empresa' corrigido para endpoint Users",
         "total_endpoints": 20,
         "corrections": [
             "vehicles (minúscula) - corrigido",
             "alelo-supply-history (hífen) - corrigido", 
             "trips (Trips com T maiúsculo) - corrigido",
             "DocumentReference serialization - corrigido",
-            "users (coleção users minúscula) - CORRIGIDO PARA BUSCAR NA COLLECTION USERS"
+            "users (campo 'Empresa') - CORRIGIDO PARA BUSCAR PELO CAMPO EMPRESA"
         ],
         "new_endpoints": [
             "/drivingdata - Collection DrivingData para dados de condução",
@@ -227,8 +228,8 @@ def get_trips():
 @app.route('/users')
 def get_users():
     """
-    API para obter dados da coleção users (CORRIGIDA)
-    Busca ESPECIFICAMENTE na coleção 'users' (minúscula) conforme solicitado
+    API para obter dados da coleção users (CORRIGIDA COM CAMPO EMPRESA)
+    Busca ESPECIFICAMENTE na coleção 'users' usando campo 'Empresa'
     """
     enterprise_id = request.args.get('enterpriseId')
     if not enterprise_id:
@@ -237,18 +238,19 @@ def get_users():
     logger.info(f"👥 Endpoint /users chamado para enterpriseId: {enterprise_id}")
     
     try:
-        # CORREÇÃO: Buscar ESPECIFICAMENTE na coleção 'users' (minúscula)
-        logger.info(f"🔍 Buscando ESPECIFICAMENTE na coleção 'users' (minúscula)...")
+        # CORREÇÃO: Buscar na coleção 'users' com campo 'Empresa' corrigido
+        logger.info(f"🔍 Buscando na coleção 'users' com campo 'Empresa' corrigido...")
         result = get_firebase_data("users", enterprise_id)
         
         # Adicionar informações específicas sobre a busca
         result["collection_used"] = "users (minúscula)"
-        result["source_note"] = "Buscando ESPECIFICAMENTE na collection 'users' conforme solicitado"
-        result["fix_status"] = "SEARCHING_USERS_COLLECTION_ONLY"
+        result["source_note"] = "Buscando na collection 'users' com campo 'Empresa' corrigido"
+        result["fix_status"] = "SEARCHING_USERS_WITH_EMPRESA_FIELD"
         
         # Log do resultado
         if result.get("count", 0) > 0:
             logger.info(f"✅ Users: {result['count']} usuários encontrados na collection 'users'")
+            logger.info(f"✅ Campo usado: {result.get('field_used_successfully', 'N/A')}")
         else:
             logger.warning(f"⚠️ Users: Nenhum usuário encontrado na collection 'users' para {enterprise_id}")
             
@@ -265,6 +267,7 @@ def get_users():
                         doc_data = doc.to_dict()
                         sample_data.append({
                             'id': doc.id,
+                            'Empresa': doc_data.get('Empresa', 'N/A'),
                             'enterpriseId': doc_data.get('enterpriseId', 'N/A'),
                             'EnterpriseId': doc_data.get('EnterpriseId', 'N/A'),
                             'display_name': doc_data.get('display_name', 'N/A')
@@ -273,7 +276,8 @@ def get_users():
                     result["debug_info"] = {
                         "collection_exists": True,
                         "sample_documents": sample_data,
-                        "message": "Collection 'users' existe mas não tem dados para este enterpriseId"
+                        "message": "Collection 'users' existe mas não tem dados para este enterpriseId",
+                        "fields_tested": result.get("fields_tested", [])
                     }
                 else:
                     logger.warning("⚠️ Debug: Collection 'users' parece estar vazia")
@@ -462,19 +466,4 @@ def get_assettype():
     return jsonify(get_firebase_data("AssetType", enterprise_id))
 
 if __name__ == '__main__':
-    print("🚀 Iniciando Firebase BI API - Versão Final v4.3.0")
-    print("📊 Total de endpoints: 20")
-    print("✅ Nomes de coleções corretos:")
-    print("   - vehicles (minúscula)")
-    print("   - alelo-supply-history (hífen)")
-    print("   - Trips (T maiúsculo) - CORRIGIDO")
-    print("   - users (u minúsculo) - CORRIGIDO PARA BUSCAR ESPECIFICAMENTE NA COLLECTION USERS")
-    print("   - DocumentReference serialization - CORRIGIDO")
-    print("🆕 Novos endpoints adicionados:")
-    print("   - /drivingdata (Collection DrivingData)")
-    print("   - /tracking (Collection Tracking)")
-    print("🔥 Firebase Status: Connected")
-    print("👥 Users Endpoint: CORRIGIDO - BUSCA ESPECIFICAMENTE NA COLLECTION 'users'")
-    print("🌐 Porta: 10000")
-    
-    app.run(host='0.0.0.0', port=10000, debug=False)
+    app.run(debug=True, host='0.0.0.0', port=5000)
